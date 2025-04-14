@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Class Participation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f8f9fa;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background: white;
+      padding: 25px;
+      border-radius: 10px;
+      box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+      text-align: center;
+      width: 350px;
+    }
+    h2 {
+      color: #343a40;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      text-align: left;
+      font-weight: bold;
+      margin-top: 10px;
+      color: #555;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 12px;
+      width: 100%;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 15px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #statusMessage {
+      margin-top: 15px;
+      font-weight: bold;
+      color: #333;
+    }
+    .participation-result {
+      margin-top: 15px;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 12px;
+      border-radius: 8px;
+      display: inline-block;
+      width: 100%;
+    }
+    .yes {
+      background: #d4edda;
+      color: #155724;
+      border-left: 5px solid #28a745;
+    }
+    .no {
+      background: #f8d7da;
+      color: #721c24;
+      border-left: 5px solid #dc3545;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Class Participation</h2>
+    <form id="uploadForm">
+      <label for="name">Name:</label>
+      <input type="text" id="name" required />
+      <label for="email">Email:</label>
+      <input type="email" id="email" required />
+      <label for="classDate">Class Date:</label>
+      <input type="date" id="classDate" required />
+      <label for="fileInput">Upload Image:</label>
+      <input type="file" id="fileInput" accept="image/*" required />
+      <button type="submit">Upload & Process</button>
+    </form>
+    <p id="statusMessage"></p>
+    <p id="participation" class="participation-result"></p>
+  </div>
+
+  <script>
+    function inferContentType(file) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+      if (ext === 'png') return 'image/png';
+      return 'application/octet-stream';
+    }
+
+    document.getElementById("uploadForm").addEventListener("submit", async function(event) {
+      event.preventDefault();
+
+      const name = document.getElementById("name").value;
+      const email = document.getElementById("email").value;
+      const classDate = document.getElementById("classDate").value;
+      const fileInput = document.getElementById("fileInput").files[0];
+
+      if (!fileInput) {
+        alert("Please select an image file.");
+        return;
+      }
+
+      const contentType = inferContentType(fileInput);
+      document.getElementById("statusMessage").innerText = "Uploading...";
+
+      try {
+        const presignResponse = await fetch("https://klz1cfad4d.execute-api.us-east-2.amazonaws.com/dev/process-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ getPresignedUrl: true, fileName: fileInput.name })
+        });
+
+        const presignData = await presignResponse.json();
+
+        if (!presignData || !presignData.url) {
+          console.error("Presigned URL is missing or invalid:", presignData);
+          document.getElementById("statusMessage").innerText = "Error getting presigned URL.";
+          return;
+        }
+
+        console.log("Presigned URL:", presignData.url);
+
+        const uploadResponse = await fetch(presignData.url, {
+          method: "PUT",
+          headers: { "Content-Type": contentType },
+          body: fileInput
+        });
+
+        if (!uploadResponse.ok) {
+          console.error("Upload failed:", uploadResponse.statusText);
+          document.getElementById("statusMessage").innerText = "Upload failed. See console.";
+          return;
+        }
+
+        console.log("Upload succeeded!");
+        const s3Url = presignData.url.split("?")[0];
+
+        const processResponse = await fetch("https://383sd394ff.execute-api.us-east-2.amazonaws.com/dev/image_processing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            email,
+            class_date: classDate,
+            s3_url: s3Url
+          })
+        });
+
+        const processData = await processResponse.json();
+        const result = typeof processData.body === "string"
+          ? JSON.parse(processData.body)
+          : processData.body;
+
+        console.log("Lambda Response:", result);
+
+        const participationResult = document.getElementById("participation");
+
+        if (result.participation) {
+          participationResult.textContent = "✅ Present";
+          participationResult.className = "participation-result yes";
+        } else {
+          participationResult.textContent = "❌ Absent";
+          participationResult.className = "participation-result no";
+        }
+
+        document.getElementById("statusMessage").innerText = "Processing Complete!";
+      } catch (err) {
+        console.error("Error:", err);
+        document.getElementById("statusMessage").innerText = "Error occurred. Check console.";
+      }
+    });
+  </script>
+</body>
+</html>
