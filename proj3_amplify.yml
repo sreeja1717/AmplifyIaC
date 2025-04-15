@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Deploy Lambda functions for Project 3 - participation detection and Amplify deployment'
+
+Parameters:
+  SourceCodeBucket:
+    Type: String
+    Description: Bucket containing the Lambda deployment package
+    Default: cicc1-media-bucket
+
+Resources:
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'LambdaProject3FullPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: 'arn:aws:s3:::cicc1-media-bucket/*'
+              - Effect: Allow
+                Action:
+                  - rekognition:CompareFaces
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - textract:DetectDocumentText
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: '*'  # Ideally use the specific table ARN
+              - Effect: Allow
+                Action:
+                  - amplify:StartDeployment
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  Project3ParticipationLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'Project3ParticipationHandler'
+      Handler: 'lambda_function.lambda_handler'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: 'python3.13'
+      Timeout: 60
+      MemorySize: 256
+      Code:
+        S3Bucket: cicc1-media-bucket
+        S3Key: 'project3/lambda_function.zip'
+
+  AmplifyDeployLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'AmplifyDeployHandler'
+      Handler: 'proj3_deployment_lambda.lambda_handler'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: 'python3.13'
+      Timeout: 30
+      MemorySize: 128
+      Code:
+        S3Bucket: cicc1-media-bucket
+        S3Key: 'project3/proj3_deployment_lambda.zip'
+
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref AmplifyDeployLambda
+      Principal: 's3.amazonaws.com'
+      SourceArn: 'arn:aws:s3:::cicc1-media-bucket'
+
+  # Removed S3EventNotification because the bucket already exists. Set this up manually in the S3 Console.
+  # Configure an event trigger for:
+  #   Prefix: proj3/
+  #   Suffix: index.zip
+  #   Destination: AmplifyDeployHandler Lambda
+
+Outputs:
+  BucketName:
+    Description: 'S3 Bucket Name for source code'
+    Value: cicc1-media-bucket
+
+  LambdaFunctionName:
+    Description: 'Name of the participation Lambda function'
+    Value: !Ref Project3ParticipationLambda
+
+  LambdaFunctionArn:
+    Description: 'ARN of the participation Lambda function'
+    Value: !GetAtt Project3ParticipationLambda.Arn
+
+  AmplifyLambdaFunctionName:
+    Description: 'Name of the Amplify deploy Lambda function'
+    Value: !Ref AmplifyDeployLambda
+
+  AmplifyLambdaFunctionArn:
+    Description: 'ARN of the Amplify deploy Lambda function'
+    Value: !GetAtt AmplifyDeployLambda.Arn
+
+
